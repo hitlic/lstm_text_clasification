@@ -78,7 +78,7 @@ class DNNModel():
         with tf.name_scope("output_layer"):
             # 输出层不用dropout
             # rnn_outputs = tf.nn.dropout(rnn_outputs, keep_prob=self.keep_prob, name='drop_out')
-            outputs = tf.contrib.layers.fully_connected(rnn_outputs, self.class_num)
+            outputs = tf.contrib.layers.fully_connected(rnn_outputs, self.class_num, activation_fn=None)
         return outputs
 
     def set_loss(self):
