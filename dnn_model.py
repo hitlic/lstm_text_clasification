@@ -220,7 +220,7 @@ class DNNModel():
                 avg_dev_acc = np.mean(dev_acc_epoch)
                 if best_acc < avg_dev_acc:
                     best_acc = avg_dev_acc
-                    saver.save(sess, checkpoint_path+"/best/best_model.ckpt")
+                    saver.save(sess, checkpoint_path+"best/best_model.ckpt")
             logger.info("** The best dev accuracy: {:.5f}".format(avg_dev_acc))
 
     @staticmethod
