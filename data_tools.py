@@ -5,7 +5,10 @@
 """
 import numpy as np
 from collections import Counter
-from pyhanlp import HanLP as hanlp
+try:
+    from pyhanlp import HanLP as hanlp
+except Exception:
+    pass
 import logging
 logger = logging.getLogger('main.data_tools')
 
@@ -66,8 +69,11 @@ def segment(text):
     '''
     使用HanLP对中文句子进行分词
     '''
-    seg_result = hanlp.segment(text)
-    return [term.word for term in seg_result]
+    try:
+        seg_result = hanlp.segment(text)
+        return [term.word for term in seg_result]
+    except Exception:
+        return text.split()
     # return ""
 
 
@@ -161,7 +167,7 @@ def dataset_split(texts, labels, train_percent, random_seed=None):
     return train_x, train_y, val_x, val_y, test_x, test_y
 
 
-def make_batches(x, y, batch_size=100):
+def make_batches(x, y, batch_size=100, shuffle=False):
     """
     将数据划分成训练批次
     :param x: 训练数据
@@ -169,6 +175,10 @@ def make_batches(x, y, batch_size=100):
     :param batch_size: int, 批次大小
     :return: x和y的批次数据生成器
     """
+    if shuffle:
+        shuf_idx = np.random.permutation(len(x))
+        x = np.array(x)[shuf_idx]
+        y = np.array(y)[shuf_idx]
     n_batches = len(x)//batch_size
     x, y = x[:n_batches*batch_size], y[:n_batches*batch_size]
     for id_ in range(0, len(x), batch_size):

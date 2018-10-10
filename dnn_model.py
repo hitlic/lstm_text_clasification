@@ -11,13 +11,14 @@ logger = logging.getLogger('main.dnn_model')
 
 
 class DNNModel():
-    def __init__(self, class_num, embed_dim, rnn_dims, batch_size=256,
+    def __init__(self, class_num, embed_dim, rnn_dims, batch_size=256, learning_rate=0.05,
                  vocab_size=None, embed_matrix=None, l2reg=0.0001, refine=False,
-                 fc_size=2000, decay_step=200, decay_rate=0.95):
+                 fc_size=1000, decay_step=50, decay_rate=0.8):
         self.class_num = class_num              # 分类类别数量
         self.embed_dim = embed_dim              # 词向量维度
         self.rnn_dims = rnn_dims                # RNN隐层维度，可有多层RNN
         self.batch_size = batch_size            # 批次大小
+        self.learning_rate = learning_rate      # 学习率
         if vocab_size is None and embed_matrix is None:  # 词向量和词典长度必须给出一个
             raise Exception("One of vocab_size and embed_matrix must be given!")
         self.vocab_size = vocab_size            # 词典大小
@@ -125,31 +126,34 @@ class DNNModel():
         embedding = self.embedding_layer(inputs)
         rnn_outputs = self.rnn_layer(embedding)
         fc_outputs = self.fc_layer(rnn_outputs)
-        predictions = self.output_layer(fc_outputs)
-        self.predictions = predictions    # ---GLOBAL--- 预测结果
+        self.predictions = self.output_layer(fc_outputs)
         self.set_loss()
+        self.set_optimizer()
         self.set_accuracy()
 
-    def set_optimizer(self, learning_rate, global_step):
+    def set_optimizer(self):
         """
         优化器
         """
         with tf.name_scope("optimizer"):
-            # self.optimizer = tf.train.AdadeltaOptimizer(learning_rate).minimize(self.loss, global_step=global_step)  # ---GLOBAL--- 优化器
-            self.optimizer = tf.train.AdamOptimizer(learning_rate).minimize(self.loss, global_step=global_step)
+            global_step = tf.Variable(0, trainable=False, name='global_step')
+            self.decay_learn_rate = tf.train.exponential_decay(                  # ---- 学习率衰减
+                self.learning_rate, global_step, self.decay_step, self.decay_rate, staircase=True)
 
-    def train(self, train_x, train_y, dev_x, dev_y, learning_rate, epochs, keep_prob,
+            # self.optimizer = tf.train.AdadeltaOptimizer(self.decay_learn_rate).minimize(self.loss, global_step=global_step)  # ---GLOBAL--- 优化器
+            # self.optimizer = tf.train.AdamOptimizer(self.decay_learn_rate).minimize(self.loss, global_step=global_step)
+            # self.optimizer = tf.train.AdagradOptimizer(self.decay_learn_rate).minimize(self.loss, global_step=global_step)
+            # self.optimizer = tf.train.MomentumOptimizer(self.decay_learn_rate).minimize(self.loss, global_step=global_step)
+            # self.optimizer = tf.train.GradientDescentOptimizer(self.decay_learn_rate).minimize(self.loss, global_step=global_step)
+            self.optimizer = tf.train.RMSPropOptimizer(self.decay_learn_rate).minimize(self.loss, global_step=global_step)
+ 
+    def train(self, train_x, train_y, dev_x, dev_y, epochs, keep_prob,
               checkpoint_path="./checkpoints/", show_step=10):
         """
         训练并验证
         """
         saver = tf.train.Saver()
         best_acc = 0
-
-        global_step = tf.Variable(0, trainable=False, name='global_step')
-        learn_rate_decay = tf.train.exponential_decay(                  # ---- 学习率衰减
-            learning_rate, global_step, self.decay_step, self.decay_rate, staircase=True)
-        self.set_optimizer(learn_rate_decay, global_step)
 
         merged_summary = tf.summary.merge_all()
 
@@ -175,8 +179,9 @@ class DNNModel():
                         self.keep_prob: keep_prob,
                         self.rnn_initial_state: init_state
                     }
-                    loss_, _, _, _, batch_acc, train_summary = sess.run(
-                        [self.loss, self.rnn_final_state, self.optimizer, learn_rate_decay, self.accuracy, merged_summary],
+                    train_loss, _, l_rate, batch_acc, train_summary = sess.run(
+                        [self.loss, self.optimizer,
+                            self.decay_learn_rate, self.accuracy, merged_summary],
                         feed_dict=feed,
                         options=run_options,       # for meta 日志
                         run_metadata=run_metadata  # for meta 日志
@@ -198,8 +203,8 @@ class DNNModel():
                                 self.keep_prob: 1,
                                 self.rnn_initial_state: dev_state
                             }
-                            dev_batch_acc, dev_state, dev_acc_summary = sess.run(
-                                [self.accuracy, self.rnn_final_state, self.acc_summary],
+                            dev_loss, dev_batch_acc, dev_acc_summary = sess.run(
+                                [self.loss, self.accuracy, self.acc_summary],
                                 feed_dict=feed
                             )
                             dev_acc.append(dev_batch_acc)
@@ -208,7 +213,8 @@ class DNNModel():
 
                         info = "|Epoch {}/{}\t".format(e+1, epochs) + \
                             "|Batch {}/{}\t".format(id_+1, n_batches) + \
-                            "|Loss| {:.5f}  ".format(loss_) + \
+                            "|Train-Loss| {:.5f}  ".format(train_loss) + \
+                            "|Dev-Loss| {:.5f}  ".format(dev_loss) + \
                             "|Train-Acc| {:.5f}  ".format(np.mean(train_acc)) + \
                             "|Dev-Acc| {:.5f}".format(np.mean(dev_acc))
                         logger.info(info)
