@@ -20,8 +20,9 @@ def load_embedding(embedding_file):
     :return: tuple, (词典, 词向量矩阵)
     """
     logger.info('loading word dict and word embedding...')
-    with open(embedding_file) as f:
-        embedding_tuple = [tuple(line.strip().split(' ', 1)) for line in f]
+    with open(embedding_file, encoding='utf-8') as f:
+        lines = f.readlines()
+        embedding_tuple = [tuple(line.strip().split(' ', 1)) for line in lines]
         embedding_tuple = [(t[0].strip().lower(), list(map(float, t[1].split()))) for t in embedding_tuple]
     embedding_matrix = []
     embedding_dim = len(embedding_tuple[0][1])
@@ -167,7 +168,7 @@ def dataset_split(texts, labels, train_percent, random_seed=None):
     return train_x, train_y, val_x, val_y, test_x, test_y
 
 
-def make_batches(x, y, batch_size=100, shuffle=False):
+def make_batches(x, y, batch_size=100, shuffle=True):
     """
     将数据划分成训练批次
     :param x: 训练数据

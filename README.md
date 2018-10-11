@@ -6,8 +6,13 @@
 
 ### 软件包依赖
 - tensorflow 1.6以上
+
 - pandas
+
 - pyhanlp (要求jdk8已安装好)
+
+## 词向量
+- 数据集太小，需使用预训练词向量。data里的英文词向量文件中的词汇量太小，从这里下载替换http://nlp.stanford.edu/data/glove.6B.zip
 
 ### 功能说明
 1. 一个基本的多层lstm rnn模型，能实现中英文文本的二分类或多分类。
