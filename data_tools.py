@@ -41,6 +41,7 @@ def drop_empty_texts(texts, labels):
     """
     去除预处理后句子为空的评论
     :param texts: id形式的文本列表
+    :param labels: 标记数据
     :return: tuple of arrays. 非空句子列表，非空标记列表
     """
     logger.info("clear empty sentences ...")

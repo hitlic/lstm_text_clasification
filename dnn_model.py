@@ -6,6 +6,7 @@
 import tensorflow as tf
 import data_tools as dt
 import numpy as np
+import os
 import logging
 logger = logging.getLogger('main.dnn_model')
 
@@ -25,9 +26,10 @@ class DNNModel():
         self.refine = refine
 
         # ---- 以下为 placeholder 参数
-        self.learning_rate = tf.placeholder_with_default(0.01, shape=())      # 学习率
-        self.keep_prob = tf.placeholder_with_default(1.0, shape=())           # dropout keep probability
-        self.l2reg = tf.placeholder_with_default(0.0, shape=())               # L2正则化参数
+        self.learning_rate = tf.placeholder_with_default(0.01, shape=(), name='learning_rate')      # 学习率
+        self.keep_prob = tf.placeholder_with_default(
+            1.0, shape=(), name='keep_prob')           # dropout keep probability
+        self.l2reg = tf.placeholder_with_default(0.0, shape=(), name='L2reg')               # L2正则化参数
 
     def inputs_layer(self):
         """
@@ -48,8 +50,7 @@ class DNNModel():
                 embedding = tf.Variable(tf.random_uniform((self.vocab_size, self.embed_dim), -1, 1), name="embedding")
             else:                           # 若已有词向量
                 embedding = tf.Variable(self.embed_matrix, trainable=self.refine, name="embedding")
-            embed = tf.nn.dropout(tf.nn.embedding_lookup(embedding, inputs_), keep_prob=self.keep_prob)
-            # embed = tf.nn.embedding_lookup(embedding, inputs_)
+            embed = tf.nn.embedding_lookup(embedding, inputs_)
         return embed
 
     def rnn_layer(self, embed):
@@ -57,26 +58,32 @@ class DNNModel():
         RNN层
         """
         with tf.name_scope("rnn_layer"):
-            # tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell
-            #tf.contrib.rnn.GRUCell(size, activation=tf.nn.relu)
+            embed = tf.nn.dropout(embed, keep_prob=self.keep_prob)  # dropout
+            # --- 可选的RNN单元
+            # tf.contrib.rnn.BasicRNNCell(size)
             # tf.contrib.rnn.BasicLSTMCell(size)
-            lstms = [tf.contrib.rnn.GRUCell(size, activation=tf.nn.relu) for size in self.rnn_dims]
-            # lstm = tf.contrib.rnn.GRUCell(self.rnn_dims, activation=tf.nn.relu)
+            # tf.contrib.rnn.LSTMCell(size)
+            # tf.contrib.rnn.GRUCell(size, activation=tf.nn.relu)
+            # tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(size)
+            # tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell(size)
+
+            lstms = [tf.contrib.rnn.LSTMCell(size) for size in self.rnn_dims]
             #  dropout
             drops = [tf.contrib.rnn.DropoutWrapper(lstm, output_keep_prob=self.keep_prob) for lstm in lstms]
-            # drops = tf.contrib.rnn.DropoutWrapper(lstm, output_keep_prob=self.keep_prob)
             # 组合多个 LSTM 层
             cell = tf.contrib.rnn.MultiRNNCell(drops)
             lstm_outputs, _ = tf.nn.dynamic_rnn(cell, embed, dtype=tf.float32)
 
-        return lstm_outputs[:, -1]  # 返回每个数据最后输出
+            outputs = lstm_outputs[:, -1]  # 返回每条数据的最后输出
+
+        return outputs
 
     def fc_layer(self, inputs):
         """
         全连接层
         """
         # initializer = tf.contrib.layers.xavier_initializer()  # xavier参数初始化，暂没用到
-        with tf.name_scope("FC_layer"):
+        with tf.name_scope("fc_layer"):
             inputs = tf.nn.dropout(inputs, keep_prob=self.keep_prob, name='drop_out')  # dropout
             # outputs = tf.contrib.layers.fully_connected(inputs, self.fc_size, activation_fn=tf.nn.relu)
             outputs = tf.layers.dense(inputs, self.fc_size, activation=tf.nn.relu)
@@ -103,7 +110,7 @@ class DNNModel():
                 tf.trainable_variables()
             )
             self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
-                logits=self.predictions, labels=self.labels))  + reg_loss   # ---GLOBAL---损失函数
+                logits=self.predictions, labels=self.labels)) + reg_loss   # ---GLOBAL---损失函数
             tf.summary.scalar("loss_summary", self.loss)
 
     def set_accuracy(self):
@@ -120,6 +127,7 @@ class DNNModel():
         优化器
         """
         with tf.name_scope("optimizer"):
+            # --- 可选优化算法
             # self.optimizer = tf.train.AdadeltaOptimizer(self.learning_rate).minimize(self.loss)
             self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
             # self.optimizer = tf.train.AdagradOptimizer(self.learning_rate).minimize(self.loss)
@@ -135,19 +143,32 @@ class DNNModel():
         embedding = self.embedding_layer(inputs)
         rnn_outputs = self.rnn_layer(embedding)
         fc_outputs = self.fc_layer(rnn_outputs)
-        outputs = self.output_layer(fc_outputs)
-        self.predictions = tf.nn.softmax(outputs)
+        self.predictions = self.output_layer(fc_outputs)
         self.set_loss()
         self.set_optimizer()
         self.set_accuracy()
 
 
 def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batch_size, keep_prob, l2reg, dev_step=10,
-          checkpoint_path="./checkpoints/"):
+          checkpoint_path="./checkpoints"):
     """
     训练并验证
-    ::
+    :param dnn_model: 计算图模型
+    :param learning_rate: 学习率
+    :param train_x: 训练数据
+    :param train_y: 标记训练数据
+    :param dev_x: 验证数据
+    :param dev_y: 标记验证数据
+    :param epochs: 迭代次数
+    :param batch_size: minibatch 大小
+    :param keep_prob: dropout keep probability
+    :param l2reg: L2 正则化系数
+    :param dev_step: 隔多少步验证一次
+    :param checkpoint_path: 模型保存位置
     """
+    if not os.path.exists(checkpoint_path):  # 模型保存路径不存在则创建路径
+        os.makedirs(checkpoint_path + '/best')
+
     saver = tf.train.Saver()
     best_acc = 0
 
@@ -170,7 +191,7 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
                     dnn_model.labels: y,
                     dnn_model.learning_rate: learning_rate,
                     dnn_model.keep_prob: keep_prob,
-                    dnn_model.l2reg:l2reg
+                    dnn_model.l2reg: l2reg
                 }
                 train_loss, _, batch_acc, train_summary = sess.run(
                     [dnn_model.loss, dnn_model.optimizer, dnn_model.accuracy, merged_summary],
@@ -212,14 +233,14 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
             avg_dev_acc = np.mean(dev_acc_epoch)
             if best_acc < avg_dev_acc:
                 best_acc = avg_dev_acc
-                saver.save(sess, checkpoint_path+"best/best_model.ckpt")
+                saver.save(sess, checkpoint_path+"/best/best_model.ckpt")
         logger.info("** The best dev accuracy: {:.5f}".format(best_acc))
 
 
 def test(dnn_model, test_x, test_y, batch_size, model_dir="./checkpoints/best"):
     """
     利用最好的模型进行测试
-    :param test_x: x测试数据
+    :param test_x: 测试数据
     :param test_y: 标记测试数据
     :param batch_size: 批次大小
     :param dnn_model: 原dnn模型
@@ -227,7 +248,6 @@ def test(dnn_model, test_x, test_y, batch_size, model_dir="./checkpoints/best"):
     """
 
     saver = tf.train.Saver()
-
     test_acc = []
     with tf.Session() as sess:
         saver.restore(sess, tf.train.latest_checkpoint(model_dir))
