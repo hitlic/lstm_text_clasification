@@ -30,7 +30,7 @@ lang = 'EN'              # 文本语言 EN为英文，CN为中文
 train_percent = 0.8      # 训练数据的比例
 show_step = 10           # 每隔几个批次输出一次结果
 
-data_path = '../data/'   # 数据存放路径
+data_path = './data/'   # 数据存放路径
 
 # ================== step1: 数据准备 =================
 ## a. 从csv文件读取数据

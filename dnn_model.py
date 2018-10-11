@@ -178,6 +178,9 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
         train_log_writer = tf.summary.FileWriter("./log", sess.graph)
         dev_log_writer = tf.summary.FileWriter("./log/dev")
 
+        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)  # for meta日志
+        run_metadata = tf.RunMetadata()  # for meta日志
+
         sess.run(tf.global_variables_initializer())
         n_batches = len(train_x)//batch_size
         step = 0
@@ -196,9 +199,12 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
                 train_loss, _, batch_acc, train_summary = sess.run(
                     [dnn_model.loss, dnn_model.optimizer, dnn_model.accuracy, merged_summary],
                     feed_dict=feed,
+                    # options=run_options,       # for meta 日志 - **1
+                    # run_metadata=run_metadata  # for meta 日志 - **2
                 )
                 train_acc.append(batch_acc)
-
+                # --- 写入meta日志，注意：日志文件会特别巨大，若要写入meta日志需取消 **1行和 **2行注释
+                # train_log_writer.add_run_metadata(run_metadata, 'batch%03d' % step)
                 train_log_writer.add_summary(train_summary, step)  # 写入日志
 
                 # 验证 ------------
