@@ -23,7 +23,7 @@ class DNNModel():
         self.embed_matrix = embed_matrix        # 词向量矩阵
         self.fc_size = fc_size                  # 全连接层大小
         self.max_sent_len = max_sent_len        # 最大句长
-        self.refine = refine
+        self.refine = refine                    # 词向量是否refine
 
         # ---- 以下为 placeholder 参数
         self.learning_rate = tf.placeholder_with_default(0.01, shape=(), name='learning_rate')      # 学习率
