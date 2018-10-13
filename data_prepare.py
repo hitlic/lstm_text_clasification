@@ -87,7 +87,7 @@ def clean_englisth(text):
     text = re.sub(r"\)", " \) ", text)
     text = re.sub(r"\?", " \? ", text)
     text = re.sub(r"\s{2,}", " ", text)  # 连续2个或多个空白字符变为一个
-    return text
+    return text.strip().lower()
 
 
 if __name__ == "__main__":
