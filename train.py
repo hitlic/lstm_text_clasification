@@ -7,6 +7,7 @@
 import data_tools as tools
 import dnn_model as dm
 import data_prepare as dp
+from itertools import chain
 import logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(message)s')
 logger = logging.getLogger('main')
@@ -30,7 +31,7 @@ lang = 'EN'              # 文本语言 EN为英文，CN为中文
 train_percent = 0.8      # 训练数据的比例
 show_step = 10           # 每隔几个批次输出一次结果
 
-data_path = './data/'   # 数据存放路径
+data_path = '../data/'   # 数据存放路径
 
 # ================== step1: 数据准备 =================
 ## a. 从csv文件读取数据
@@ -46,12 +47,12 @@ logger.info('max sentence len: ' + str(max([len(text) for text in texts])))
 
 # --- 构建词典
 ## a. 基于文本构建词典  -- 不使用预训练词向量
-# vocab_to_int, int_to_vocab = tools.make_dictionary_by_text(" ".join([" ".join(text) for text in texts]))
-# embedding_matrix = None  # 设词向量矩阵为None
+vocab_to_int, int_to_vocab = tools.make_dictionary_by_text(list(chain.from_iterable(texts)))
+embedding_matrix = None  # 设词向量矩阵为None
 
 ## b. 基于词向量构建词典 -- 使用预训练词向量
 # vocab_to_int, embedding_matrix = tools.load_embedding(data_path + "word_embedding_300_new.txt") # 英文词向量
-vocab_to_int, embedding_matrix = tools.load_embedding(data_path + "glove.6B.200d.txt")  # 英文词向量
+# vocab_to_int, embedding_matrix = tools.load_embedding(data_path + "glove.6B.200d.txt")  # 英文词向量
 # vocab_to_int, embedding_matrix = tools.load_embedding(data_path + "sgns.weibo.word.txt") # 中文词向量
 
 # --- 利用词典，将文本句子转成id列表

@@ -12,8 +12,8 @@
 - pyhanlp (若处理中文数据时必须，要求jdk安装配置好)
 
 ### 词向量
-- 英文数据集太小，需使用预训练词向量。data文件夹中的英文词向量维度为300，但词汇量太小，仅做测试用。可从这里下载替换 http://nlp.stanford.edu/data/glove.6B.zip
-- 若要使用中文词向量，请自行下载  https://github.com/Embedding/Chinese-Word-Vectors
+- data文件夹中的英文词向量维度为300，但词汇量太小，仅做测试用。可从这里下载替换 http://nlp.stanford.edu/data/glove.6B.zip
+- 中文词向量参见  https://github.com/Embedding/Chinese-Word-Vectors
 
 ### 功能说明
 - 一个基本的多层lstm rnn模型，能实现中英文文本的二分类或多分类
