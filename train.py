@@ -29,7 +29,7 @@ max_sent_len = 60        # 最大句长
 class_num = 2            # 类别数量
 lang = 'EN'              # 文本语言 EN为英文，CN为中文
 train_percent = 0.8      # 训练数据的比例
-show_step = 0           # 每隔几个批次输出一次结果
+show_step = 0            # 每隔几个批次输出一次结果，若为0则不显示
 dev_step = 20            # 每隔几个批次验证一次
 data_path = '../data/'   # 数据存放路径
 

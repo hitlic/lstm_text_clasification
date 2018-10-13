@@ -185,17 +185,13 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
     best_dev_acc = 0
 
     with tf.Session() as sess:
-
-        # Summaries for loss and accuracy
-        loss_summary = tf.summary.scalar("loss_summary", dnn_model.loss)
-        acc_summary = tf.summary.scalar("acc_summary", dnn_model.accuracy)
-
         # Train Summaries
-        train_summary_op = tf.summary.merge([loss_summary, acc_summary])
+        train_loss = tf.summary.scalar("train_loss", dnn_model.loss)
+        train_acc = tf.summary.scalar("train_acc", dnn_model.accuracy)
+        train_summary_op = tf.summary.merge([train_loss, train_acc])
         train_summary_writer = tf.summary.FileWriter('./log/train', sess.graph)
 
-        # Dev summaries
-        dev_summary_op = tf.summary.merge([loss_summary, acc_summary])
+        # Dev summary writer
         dev_summary_writer = tf.summary.FileWriter('./log/dev', sess.graph)
 
         # meta日志
@@ -243,16 +239,18 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
                             dnn_model.labels: yy,
                             dnn_model.keep_prob: 1,
                         }
-                        dev_batch_loss, dev_batch_acc, dev_summary = sess.run(
-                            [dnn_model.loss, dnn_model.accuracy, dev_summary_op],
-                            feed_dict=feed
-                        )
-                        dev_summary_writer.add_summary(dev_summary, step)  # 写入日志
+                        dev_batch_loss, dev_batch_acc = sess.run([dnn_model.loss, dnn_model.accuracy], feed_dict=feed)
                         dev_acc_s.append(dev_batch_acc)
                         dev_loss_s.append(dev_batch_loss)
 
                     dev_acc = np.mean(dev_acc_s)    # dev acc 均值
                     dev_loss = np.mean(dev_loss_s)  # dev loss 均值
+
+                    # --- 验证日志
+                    dev_summary = tf.Summary()
+                    dev_summary.value.add(tag="dev_loss", simple_value=dev_loss)
+                    dev_summary.value.add(tag="dev_acc", simple_value=dev_acc)
+                    dev_summary_writer.add_summary(dev_summary, step)
 
                     info = "|Epoch {}/{}\t".format(e+1, epochs) + \
                         "|Batch {}/{}\t".format(id_+1, n_batches) + \
