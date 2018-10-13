@@ -55,6 +55,8 @@ embedding_matrix = None  # 设词向量矩阵为None
 # vocab_to_int, embedding_matrix = tools.load_embedding(data_path + "glove.6B.200d.txt")  # 英文词向量
 # vocab_to_int, embedding_matrix = tools.load_embedding(data_path + "sgns.weibo.word.txt") # 中文词向量
 
+logger.info(f"dictionary length: {len(vocab_to_int)}")
+
 # --- 利用词典，将文本句子转成id列表
 texts = tools.wordlists2idlists(texts, vocab_to_int)
 # --- 清除预处理后文本内容为空的数据
@@ -75,7 +77,8 @@ model.build()
 
 
 # ================== step3: 训练 =================
-dm.train(model, learning_rate, train_x, train_y, val_x, val_y, epochs, batch_size, keep_prob, l2reg, show_step=show_step, dev_step=dev_step)
+dm.train(model, learning_rate, train_x, train_y, val_x, val_y, epochs, batch_size, keep_prob, l2reg,
+         show_step=show_step, dev_step=dev_step)
 
 # ================== step4: 测试 =================
 dm.test(model, test_x, test_y, batch_size)

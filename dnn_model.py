@@ -125,7 +125,6 @@ class DNNModel():
             )
             self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
                 logits=self.predictions, labels=self.labels)) + reg_loss   # ---GLOBAL---损失函数
-            tf.summary.scalar("loss_summary", self.loss)
 
     def set_accuracy(self):
         """
@@ -134,7 +133,6 @@ class DNNModel():
         with tf.name_scope("accuracy_scope"):
             correct_pred = tf.equal(tf.argmax(self.predictions, axis=1), tf.argmax(self.labels, axis=1))
             self.accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))   # ---GLOBAL---准确率
-            self.acc_summary = tf.summary.scalar("acc_summary", self.accuracy)
 
     def set_optimizer(self):
         """
@@ -163,8 +161,8 @@ class DNNModel():
         self.set_accuracy()
 
 
-def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batch_size, keep_prob, l2reg, show_step=10, dev_step=20,
-          checkpoint_path="./checkpoints"):
+def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batch_size, keep_prob, l2reg,
+          show_step=10, dev_step=20, checkpoint_path="./checkpoints"):
     """
     训练并验证
     :param dnn_model: 计算图模型
@@ -183,25 +181,31 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
     """
     if not os.path.exists(checkpoint_path):  # 模型保存路径不存在则创建路径
         os.makedirs(checkpoint_path + '/best')
-
     saver = tf.train.Saver()
-    best_acc = 0
-
-    merged_summary = tf.summary.merge_all()
+    best_dev_acc = 0
 
     with tf.Session() as sess:
-        train_log_writer = tf.summary.FileWriter("./log", sess.graph)
-        dev_log_writer = tf.summary.FileWriter("./log/dev")
 
-        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)  # for meta日志
-        run_metadata = tf.RunMetadata()  # for meta日志
+        # Summaries for loss and accuracy
+        loss_summary = tf.summary.scalar("loss_summary", dnn_model.loss)
+        acc_summary = tf.summary.scalar("acc_summary", dnn_model.accuracy)
+
+        # Train Summaries
+        train_summary_op = tf.summary.merge([loss_summary, acc_summary])
+        train_summary_writer = tf.summary.FileWriter('./log/train', sess.graph)
+
+        # Dev summaries
+        dev_summary_op = tf.summary.merge([loss_summary, acc_summary])
+        dev_summary_writer = tf.summary.FileWriter('./log/dev', sess.graph)
+
+        # meta日志
+        # run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)  # for meta日志  **1
+        # run_metadata = tf.RunMetadata()                                    # for meta日志  **2
 
         sess.run(tf.global_variables_initializer())
         n_batches = len(train_x)//batch_size
         step = 0
         for e in range(epochs):
-            train_acc = []
-            dev_acc_epoch = []
             for id_, (x, y) in enumerate(dt.make_batches(train_x, train_y, batch_size), 1):
                 step += 1
                 feed = {
@@ -211,58 +215,60 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
                     dnn_model.keep_prob: keep_prob,
                     dnn_model.l2reg: l2reg
                 }
-                train_loss, _, batch_acc, train_summary = sess.run(
-                    [dnn_model.loss, dnn_model.optimizer, dnn_model.accuracy, merged_summary],
+                train_loss, _, train_acc, train_summary = sess.run(
+                    [dnn_model.loss, dnn_model.optimizer, dnn_model.accuracy, train_summary_op],
                     feed_dict=feed,
-                    # options=run_options,       # for meta 日志 - **1
-                    # run_metadata=run_metadata  # for meta 日志 - **2
+                    # options=run_options,                                  # for meta 日志 - **3
+                    # run_metadata=run_metadata                             # for meta 日志 - **4
                 )
-                train_acc.append(batch_acc)
-                # --- 写入meta日志，注意：日志文件会特别巨大，若要写入meta日志需取消 **1行和 **2行注释
-                # train_log_writer.add_run_metadata(run_metadata, 'batch%03d' % step)
-                train_log_writer.add_summary(train_summary, step)  # 写入日志
+
+                train_summary_writer.add_summary(train_summary, step)  # 写入日志
+                # --- 写入meta日志，注意：日志文件会特别巨大，若要写入meta日志需取消 **1行、**2行、**3行、**4行和**5行的注释
+                # train_summary_writer.add_run_metadata(run_metadata, 'batch%03d' % step) # for meta 日志 - **5
 
                 if show_step > 0 and step % show_step == 0:
                     info = "|Epoch {}/{}\t".format(e+1, epochs) + \
                         "|Batch {}/{}\t".format(id_+1, n_batches) + \
                         "|Train-Loss| {:.5f}  ".format(train_loss) + \
-                        "|Train-Acc| {:.5f}  ".format(np.mean(train_acc))
+                        "|Train-Acc| {:.5f}  ".format(train_acc)
                     logger.info(info)
 
-                # 验证 ------------
+                # 验证 ---
                 if dev_step > 0 and step % dev_step == 0:
-                    dev_acc = []
+                    dev_acc_s = []
+                    dev_loss_s = []
                     for xx, yy in dt.make_batches(dev_x, dev_y, batch_size):
                         feed = {
                             dnn_model.inputs: xx,
                             dnn_model.labels: yy,
                             dnn_model.keep_prob: 1,
                         }
-                        dev_loss, dev_batch_acc, dev_acc_summary = sess.run(
-                            [dnn_model.loss, dnn_model.accuracy, dnn_model.acc_summary],
+                        dev_batch_loss, dev_batch_acc, dev_summary = sess.run(
+                            [dnn_model.loss, dnn_model.accuracy, dev_summary_op],
                             feed_dict=feed
                         )
-                        dev_acc.append(dev_batch_acc)
-                        dev_acc_epoch.append(dev_batch_acc)
-                        dev_log_writer.add_summary(dev_acc_summary, step)
+                        dev_summary_writer.add_summary(dev_summary, step)  # 写入日志
+                        dev_acc_s.append(dev_batch_acc)
+                        dev_loss_s.append(dev_batch_loss)
+
+                    dev_acc = np.mean(dev_acc_s)    # dev acc 均值
+                    dev_loss = np.mean(dev_loss_s)  # dev loss 均值
 
                     info = "|Epoch {}/{}\t".format(e+1, epochs) + \
                         "|Batch {}/{}\t".format(id_+1, n_batches) + \
                         "|Train-Loss| {:.5f}  ".format(train_loss) + \
                         "|Dev-Loss| {:.5f}  ".format(dev_loss) + \
                         "|Train-Acc| {:.5f}  ".format(np.mean(train_acc)) + \
-                        "|Dev-Acc| {:.5f}".format(np.mean(dev_acc))
+                        "|Dev-Acc| {:.5f}".format(dev_acc)
                     logger.info(info)
 
-            # global_step 用于生成多个checkpoint的文件名
-            # saver.save(sess, checkpoint_path+"model.ckpt", global_step=e)  # 保存每个epoch的模型
-
-            # 选择最好的模型保存
-            avg_dev_acc = np.mean(dev_acc_epoch)
-            if best_acc < avg_dev_acc:
-                best_acc = avg_dev_acc
-                saver.save(sess, checkpoint_path+"/best/best_model.ckpt")
-        logger.info("** The best dev accuracy: {:.5f}".format(best_acc))
+                    # --- 保存最好的模型
+                    if best_dev_acc < dev_acc:
+                        best_dev_acc = dev_acc
+                        saver.save(sess, checkpoint_path+"/best/best_model.ckpt")
+            # 保存每个epoch的模型
+            # saver.save(sess, checkpoint_path+"model.ckpt", global_step=e)
+        logger.info("** The best dev accuracy: {:.5f}".format(best_dev_acc))
 
 
 def test(dnn_model, test_x, test_y, batch_size, model_dir="./checkpoints/best"):
@@ -280,10 +286,11 @@ def test(dnn_model, test_x, test_y, batch_size, model_dir="./checkpoints/best"):
     with tf.Session() as sess:
         saver.restore(sess, tf.train.latest_checkpoint(model_dir))
         for _, (x, y) in enumerate(dt.make_batches(test_x, test_y, batch_size), 1):
-            feed = {dnn_model.inputs: x,
-                    dnn_model.labels: y,
-                    dnn_model.keep_prob: 1,
-                    }
+            feed = {
+                dnn_model.inputs: x,
+                dnn_model.labels: y,
+                dnn_model.keep_prob: 1,
+            }
             batch_acc = sess.run([dnn_model.accuracy], feed_dict=feed)
             test_acc.append(batch_acc)
         logger.info("** Test Accuracy: {:.5f}".format(np.mean(test_acc)))
