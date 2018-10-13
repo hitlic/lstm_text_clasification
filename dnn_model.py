@@ -13,7 +13,7 @@ logger = logging.getLogger('main.dnn_model')
 
 class DNNModel():
     def __init__(self, class_num, embed_dim, rnn_dims, vocab_size=None, embed_matrix=None,
-                 fc_size=500, max_sent_len=200, refine=False):
+                 isBiRNN=True, fc_size=500, max_sent_len=200, refine=False):
         self.class_num = class_num              # 分类类别数量
         self.embed_dim = embed_dim              # 词向量维度
         self.rnn_dims = rnn_dims                # RNN隐层维度，可有多层RNN
@@ -21,6 +21,7 @@ class DNNModel():
             raise Exception("One of vocab_size and embed_matrix must be given!")
         self.vocab_size = vocab_size            # 词典大小
         self.embed_matrix = embed_matrix        # 词向量矩阵
+        self.isBiRNN = isBiRNN                  # 是否使用双向RNN
         self.fc_size = fc_size                  # 全连接层大小
         self.max_sent_len = max_sent_len        # 最大句长
         self.refine = refine                    # 词向量是否refine
@@ -67,13 +68,26 @@ class DNNModel():
             # tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(size)
             # tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell(size)
 
-            lstms = [tf.contrib.rnn.LSTMCell(size) for size in self.rnn_dims]
-            #  dropout
-            drops = [tf.contrib.rnn.DropoutWrapper(lstm, output_keep_prob=self.keep_prob) for lstm in lstms]
-            # 组合多个 LSTM 层
-            cell = tf.contrib.rnn.MultiRNNCell(drops)
-            lstm_outputs, _ = tf.nn.dynamic_rnn(cell, embed, dtype=tf.float32)
-
+            if not self.isBiRNN:
+                lstms = [tf.contrib.rnn.BasicLSTMCell(size) for size in self.rnn_dims]
+                drops = [tf.contrib.rnn.DropoutWrapper(lstm, output_keep_prob=self.keep_prob) for lstm in lstms]
+                cell = tf.contrib.rnn.MultiRNNCell(drops)  # 组合多个 LSTM 层
+                lstm_outputs, _ = tf.nn.dynamic_rnn(cell, embed, dtype=tf.float32)
+                # lstm_outputs -> batch_size * max_len * n_hidden
+            else:
+                lstms_l = [tf.contrib.rnn.BasicLSTMCell(size) for size in self.rnn_dims]
+                lstms_r = [tf.contrib.rnn.BasicLSTMCell(size) for size in self.rnn_dims]
+                drops_l = [tf.contrib.rnn.DropoutWrapper(lstm, output_keep_prob=self.keep_prob) for lstm in lstms_l]
+                drops_r = [tf.contrib.rnn.DropoutWrapper(lstm, output_keep_prob=self.keep_prob) for lstm in lstms_r]
+                cell_l = tf.contrib.rnn.MultiRNNCell(drops_l)
+                cell_r = tf.contrib.rnn.MultiRNNCell(drops_r)
+                outputs, _ = tf.nn.bidirectional_dynamic_rnn(  # 双向LSTM
+                    cell_l,  # 正向LSTM单元
+                    cell_r,  # 反向LSTM单元
+                    inputs=embed,
+                    dtype=tf.float32,
+                )  # outputs -> batch_size * max_len * n_hidden; state(最终状态，为h和c的tuple) -> batch_size * n_hidden
+                lstm_outputs = tf.concat(outputs, -1)  # 合并双向LSTM的结果
             outputs = lstm_outputs[:, -1]  # 返回每条数据的最后输出
 
         return outputs
@@ -149,7 +163,7 @@ class DNNModel():
         self.set_accuracy()
 
 
-def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batch_size, keep_prob, l2reg, dev_step=10,
+def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batch_size, keep_prob, l2reg, show_step=10, dev_step=20,
           checkpoint_path="./checkpoints"):
     """
     训练并验证
@@ -163,6 +177,7 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
     :param batch_size: minibatch 大小
     :param keep_prob: dropout keep probability
     :param l2reg: L2 正则化系数
+    :param show_step: 隔多少步显示一次训练结果
     :param dev_step: 隔多少步验证一次
     :param checkpoint_path: 模型保存位置
     """
@@ -207,8 +222,15 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
                 # train_log_writer.add_run_metadata(run_metadata, 'batch%03d' % step)
                 train_log_writer.add_summary(train_summary, step)  # 写入日志
 
+                if show_step > 0 and step % show_step == 0:
+                    info = "|Epoch {}/{}\t".format(e+1, epochs) + \
+                        "|Batch {}/{}\t".format(id_+1, n_batches) + \
+                        "|Train-Loss| {:.5f}  ".format(train_loss) + \
+                        "|Train-Acc| {:.5f}  ".format(np.mean(train_acc))
+                    logger.info(info)
+
                 # 验证 ------------
-                if step % dev_step == 0:
+                if dev_step > 0 and step % dev_step == 0:
                     dev_acc = []
                     for xx, yy in dt.make_batches(dev_x, dev_y, batch_size):
                         feed = {
