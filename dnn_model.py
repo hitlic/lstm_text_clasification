@@ -34,8 +34,7 @@ class DNNModel():
 
     def inputs_layer(self):
         """
-        模型输入
-        :return: 数据、标记、dropout的placeholder
+        输入层
         """
         with tf.name_scope('input_layer'):
             self.inputs = tf.placeholder(tf.int32, [None, self.max_sent_len], name='inputs')  # 输入数据x placeholder
