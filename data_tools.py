@@ -110,18 +110,29 @@ def wordlists2idlists(word_list_s, word_to_id):
     return np.array(sent_id_list)
 
 
-def labels2onehot(labels, class_num):
+def labels2onehot(labels, class_num=None, class_labels=None):
     """
-    生成句子的情感标记
-    :param labels: list of labels. 标记列表
-    :param class_num: 类别总数
+    生成句子的情感标记。调用时class_num与class_labels必选其一。
+    :param labels: list; 数据的标记列表
+    :param class_num: int; 类别总数
+    :param class_labels: list; 类别标记，如[0, 1]、['a', 'b']
     :return: numpy array.
     """
-    def label2onehot(label_, class_num):
+    if class_num is None and class_labels is None:
+        raise Exception("Parameter eithor class_num or class_labels must be given!  -- by lic")
+    if class_labels is not None:
+        class_num = len(class_labels)
+
+    def label2onehot(label_):
+        if class_labels is None:
+            label_index = label_
+        else:
+            label_index = class_labels.index(label_)
         onehot_label = [0] * class_num
-        onehot_label[label_] = 1
+        onehot_label[label_index] = 1
         return onehot_label
-    return np.array([label2onehot(label_, class_num) for label_ in labels])
+
+    return np.array([label2onehot(label_) for label_ in labels])
 
 
 def dataset_padding(text_ids, sent_len):
