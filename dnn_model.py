@@ -7,11 +7,11 @@ import tensorflow as tf
 import data_tools as dt
 import numpy as np
 import os
+import time
 import logging
 logger = logging.getLogger('main.dnn_model')
 
-
-class DNNModel():
+class DNNModel:
     def __init__(self, class_num, embed_dim, rnn_dims, vocab_size=None, embed_matrix=None,
                  isBiRNN=True, fc_size=500, max_sent_len=200, refine=False):
         self.class_num = class_num              # 分类类别数量
@@ -160,8 +160,8 @@ class DNNModel():
         self.set_accuracy()
 
 
-def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batch_size, keep_prob, l2reg,
-          show_step=10, dev_step=20, checkpoint_path="./checkpoints"):
+def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, max_epochs, batch_size, keep_prob, l2reg,
+          show_step=10, checkpoint_path="./checkpoints", model_name=None, alpha=0.5, max_asc_num=3):
     """
     训练并验证
     :param dnn_model: 计算图模型
@@ -170,18 +170,23 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
     :param train_y: 标记训练数据
     :param dev_x: 验证数据
     :param dev_y: 标记验证数据
-    :param epochs: 迭代次数
+    :param max_epochs: 最大迭代次数
     :param batch_size: minibatch 大小
     :param keep_prob: dropout keep probability
     :param l2reg: L2 正则化系数
     :param show_step: 隔多少步显示一次训练结果
-    :param dev_step: 隔多少步验证一次
     :param checkpoint_path: 模型保存位置
+    :param model_name: 保存下来的模型的名称（文件夹名）
+    :param alphs: early stop中dev_loss指数平滑的指数
+    :param max_asc_num: dev_loss指数平滑序列中，出现第max_asc_num个上升，则停止训练
     """
-    if not os.path.exists(checkpoint_path):  # 模型保存路径不存在则创建路径
-        os.makedirs(checkpoint_path + '/best')
+    # 最佳模型保存路径
+    if model_name is None:
+        model_name = str(time.time()).replace('.', '')[:11]
+    best_model_path = checkpoint_path + '/best/' + model_name
+    if not os.path.exists(best_model_path):  # 模型保存路径不存在则创建路径
+        os.makedirs(best_model_path)
     saver = tf.train.Saver()
-    best_dev_acc = 0
 
     with tf.Session() as sess:
         # Train Summaries
@@ -200,7 +205,12 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
         sess.run(tf.global_variables_initializer())
         n_batches = len(train_x)//batch_size
         step = 0
-        for e in range(epochs):
+        best_dev_acc = 0     # 最优验证准确率
+        min_dev_loss = None  # 最小验证损失
+
+        loss_ewm_ = 0  # dev loss 指数滑动平均 t-1 时刻的值
+        asc_num = 0    # 指数平滑 dev loss 上升的次数
+        for e in range(max_epochs):
             for id_, (x, y) in enumerate(dt.make_batches(train_x, train_y, batch_size), 1):
                 step += 1
                 feed = {
@@ -222,50 +232,71 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, epochs, batc
                 # train_summary_writer.add_run_metadata(run_metadata, 'batch%03d' % step) # for meta 日志 - **5
 
                 if show_step > 0 and step % show_step == 0:
-                    info = "|Epoch {}/{}\t".format(e+1, epochs) + \
-                        "|Batch {}/{}\t".format(id_+1, n_batches) + \
-                        "|Train-Loss| {:.5f}  ".format(train_loss) + \
-                        "|Train-Acc| {:.5f}  ".format(train_acc)
+                    info = "Epoch {}/{} ".format(e+1, max_epochs) + \
+                        " - Batch {}/{} ".format(id_+1, n_batches) + \
+                        " - Loss {:.5f} ".format(train_loss) + \
+                        " - Acc {:.5f}".format(train_acc)
                     logger.info(info)
 
-                # 验证 ---
-                if dev_step > 0 and step % dev_step == 0:
-                    dev_acc_s = []
-                    dev_loss_s = []
-                    for xx, yy in dt.make_batches(dev_x, dev_y, batch_size):
-                        feed = {
-                            dnn_model.inputs: xx,
-                            dnn_model.labels: yy,
-                            dnn_model.keep_prob: 1,
-                        }
-                        dev_batch_loss, dev_batch_acc = sess.run([dnn_model.loss, dnn_model.accuracy], feed_dict=feed)
-                        dev_acc_s.append(dev_batch_acc)
-                        dev_loss_s.append(dev_batch_loss)
+            # 每个 Epoch 验证 ---
+            dev_acc_s = []
+            dev_loss_s = []
+            for xx, yy in dt.make_batches(dev_x, dev_y, batch_size):
+                feed = {
+                    dnn_model.inputs: xx,
+                    dnn_model.labels: yy,
+                    dnn_model.keep_prob: 1,
+                }
+                dev_batch_loss, dev_batch_acc = sess.run([dnn_model.loss, dnn_model.accuracy], feed_dict=feed)
+                dev_acc_s.append(dev_batch_acc)
+                dev_loss_s.append(dev_batch_loss)
 
-                    dev_acc = np.mean(dev_acc_s)    # dev acc 均值
-                    dev_loss = np.mean(dev_loss_s)  # dev loss 均值
+            dev_acc = np.mean(dev_acc_s)    # dev acc 均值
+            dev_loss = np.mean(dev_loss_s)  # dev loss 均值
 
-                    # --- 验证日志
-                    dev_summary = tf.Summary()
-                    dev_summary.value.add(tag="dev_loss", simple_value=dev_loss)
-                    dev_summary.value.add(tag="dev_acc", simple_value=dev_acc)
-                    dev_summary_writer.add_summary(dev_summary, step)
+            # --- dev 日志
+            dev_summary = tf.Summary()
+            dev_summary.value.add(tag="dev_loss", simple_value=dev_loss)
+            dev_summary.value.add(tag="dev_acc", simple_value=dev_acc)
+            dev_summary_writer.add_summary(dev_summary, step)
 
-                    info = "|Epoch {}/{}\t".format(e+1, epochs) + \
-                        "|Batch {}/{}\t".format(id_+1, n_batches) + \
-                        "|Train-Loss| {:.5f}  ".format(train_loss) + \
-                        "|Dev-Loss| {:.5f}  ".format(dev_loss) + \
-                        "|Train-Acc| {:.5f}  ".format(np.mean(train_acc)) + \
-                        "|Dev-Acc| {:.5f}".format(dev_acc)
-                    logger.info(info)
+            info = "|Epoch {}/{}\t".format(e+1, max_epochs) + \
+                "|Train-Loss| {:.5f}\t".format(train_loss) + \
+                "|Dev-Loss| {:.5f}\t".format(dev_loss) + \
+                "|Train-Acc| {:.5f}\t".format(np.mean(train_acc)) + \
+                "|Dev-Acc| {:.5f}".format(dev_acc)
+            logger.info(info)
 
-                    # --- 保存最好的模型
-                    if best_dev_acc < dev_acc:
-                        best_dev_acc = dev_acc
-                        saver.save(sess, checkpoint_path+"/best/best_model.ckpt")
+            # 寻找最小 dev_loss
+            if min_dev_loss is None:
+                min_dev_loss = dev_loss
+            elif min_dev_loss > dev_loss:
+                min_dev_loss = dev_loss
+
+            # 保存最好的模型
+            if best_dev_acc < dev_acc:
+                best_dev_acc = dev_acc
+                saver.save(sess, best_model_path + "/best_model.ckpt")
             # 保存每个epoch的模型
-            # saver.save(sess, checkpoint_path+"model.ckpt", global_step=e)
+            # saver.save(sess, best_model_path + "model.ckpt", global_step=e)
+
+            # dev_loss 指数平滑
+            if e == 0:
+                loss_ewm_ = dev_loss  # 指数平滑初始化
+            loss_ewm = alpha * dev_loss + (1-alpha) * loss_ewm_   # dev loss 指数平滑
+            # 根据dev_loss指数平滑判断是否 early stop
+            if loss_ewm <= loss_ewm_:
+                asc_num = 0
+            else:
+                asc_num += 1
+            if asc_num == max_asc_num:  # dev loss的指数平滑连续max_asc_num个epoch都上升，则退出迭代 early stop
+                break
+            loss_ewm_ = loss_ewm
+
         logger.info("** The best dev accuracy: {:.5f}".format(best_dev_acc))
+
+    # 返回最小的验证损失。当损失最小时，准确率未必最小，保存的模型为准确率最小的模型，但返回的是最小损失
+    return min_dev_loss
 
 
 def test(dnn_model, test_x, test_y, batch_size, model_dir="./checkpoints/best"):
@@ -277,11 +308,12 @@ def test(dnn_model, test_x, test_y, batch_size, model_dir="./checkpoints/best"):
     :param dnn_model: 原dnn模型
     :param model_dir: 训练好的模型的存储位置
     """
-
+    best_folder = max([d for d in os.listdir(model_dir) if d.isdigit()])
+    best_model_dir = model_dir + '/' + best_folder
     saver = tf.train.Saver()
     test_acc = []
     with tf.Session() as sess:
-        saver.restore(sess, tf.train.latest_checkpoint(model_dir))
+        saver.restore(sess, tf.train.latest_checkpoint(best_model_dir))
         for _, (x, y) in enumerate(dt.make_batches(test_x, test_y, batch_size), 1):
             feed = {
                 dnn_model.inputs: x,

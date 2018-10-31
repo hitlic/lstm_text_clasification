@@ -22,15 +22,14 @@ lstm_sizes = [256]       # 各层lstm的维度
 fc_size = 500            # 全连接层大小
 
 embed_size = 200         # 词向量维度
-epochs = 10              # 数据迭代次数
+max_epochs = 50              # 数据迭代次数
 
 # ---- 其他参数
 max_sent_len = 60        # 最大句长
 class_num = 2            # 类别数量
 lang = 'EN'              # 文本语言 EN为英文，CN为中文
 train_percent = 0.8      # 训练数据的比例
-show_step = 0            # 每隔几个批次输出一次结果，若为0则不显示
-dev_step = 20            # 每隔几个批次验证一次
+show_step = 20            # 每隔几个批次输出一次结果，若为0则不显示
 data_path = './data/'   # 数据存放路径
 
 # ================== step1: 数据准备 =================
@@ -77,8 +76,20 @@ model.build()
 
 
 # ================== step3: 训练 =================
-dm.train(model, learning_rate, train_x, train_y, val_x, val_y, epochs, batch_size, keep_prob, l2reg,
-         show_step=show_step, dev_step=dev_step)
+min_dev_loss = dm.train(
+    model,
+    learning_rate,
+    train_x,
+    train_y,
+    val_x,
+    val_y,
+    max_epochs,
+    batch_size,
+    keep_prob,
+    l2reg,
+    show_step=show_step
+)
+logger.info(f' ** The minimum dev_loss is {min_dev_loss}')
 
 # ================== step4: 测试 =================
 dm.test(model, test_x, test_y, batch_size)
