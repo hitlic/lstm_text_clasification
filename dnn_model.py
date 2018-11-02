@@ -4,6 +4,7 @@
 2018
 """
 import tensorflow as tf
+import data_tools as dt
 import numpy as np
 import os
 import time
