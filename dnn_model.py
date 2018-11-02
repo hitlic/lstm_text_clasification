@@ -11,6 +11,7 @@ import time
 import logging
 logger = logging.getLogger('main.dnn_model')
 
+
 class DNNModel:
     def __init__(self, class_num, embed_dim, rnn_dims, vocab_size=None, embed_matrix=None,
                  isBiRNN=True, fc_size=500, max_sent_len=200, refine=False):
@@ -161,7 +162,7 @@ class DNNModel:
 
 
 def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, max_epochs, batch_size, keep_prob, l2reg,
-          show_step=10, checkpoint_path="./checkpoints", model_name=None, alpha=0.5, max_asc_num=3):
+          show_step=10, checkpoint_path="./checkpoints", model_name=None, no_improve=5):
     """
     训练并验证
     :param dnn_model: 计算图模型
@@ -177,8 +178,7 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, max_epochs, 
     :param show_step: 隔多少步显示一次训练结果
     :param checkpoint_path: 模型保存位置
     :param model_name: 保存下来的模型的名称（文件夹名）
-    :param alphs: early stop中dev_loss指数平滑的指数
-    :param max_asc_num: dev_loss指数平滑序列中，出现第max_asc_num个上升，则停止训练
+    :param no_improve: early stop, 连续no_improve次没有得到更低的dev_loss则停止
     """
     # 最佳模型保存路径
     if model_name is None:
@@ -206,10 +206,9 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, max_epochs, 
         n_batches = len(train_x)//batch_size
         step = 0
         best_dev_acc = 0     # 最优验证准确率
-        min_dev_loss = None  # 最小验证损失
+        min_dev_loss = float('inf')  # 最小验证损失
 
-        loss_ewm_ = 0  # dev loss 指数滑动平均 t-1 时刻的值
-        asc_num = 0    # 指数平滑 dev loss 上升的次数
+        no_improve_num = 0    # 最优dev loss 没有下降的次数
         for e in range(max_epochs):
             for id_, (x, y) in enumerate(dt.make_batches(train_x, train_y, batch_size), 1):
                 step += 1
@@ -267,12 +266,6 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, max_epochs, 
                 "|Dev-Acc| {:.5f}".format(dev_acc)
             logger.info(info)
 
-            # 寻找最小 dev_loss
-            if min_dev_loss is None:
-                min_dev_loss = dev_loss
-            elif min_dev_loss > dev_loss:
-                min_dev_loss = dev_loss
-
             # 保存最好的模型
             if best_dev_acc < dev_acc:
                 best_dev_acc = dev_acc
@@ -280,18 +273,16 @@ def train(dnn_model, learning_rate, train_x, train_y, dev_x, dev_y, max_epochs, 
             # 保存每个epoch的模型
             # saver.save(sess, best_model_path + "model.ckpt", global_step=e)
 
-            # dev_loss 指数平滑
-            if e == 0:
-                loss_ewm_ = dev_loss  # 指数平滑初始化
-            loss_ewm = alpha * dev_loss + (1-alpha) * loss_ewm_   # dev loss 指数平滑
-            # 根据dev_loss指数平滑判断是否 early stop
-            if loss_ewm <= loss_ewm_:
-                asc_num = 0
+            # 寻找最小 dev_loss
+            if min_dev_loss > dev_loss:
+                min_dev_loss = dev_loss
+                no_improve_num = 0
             else:
-                asc_num += 1
-            if asc_num == max_asc_num:  # dev loss的指数平滑连续max_asc_num个epoch都上升，则退出迭代 early stop
+                no_improve_num += 1
+
+            # early stop
+            if no_improve_num == no_improve:
                 break
-            loss_ewm_ = loss_ewm
 
         logger.info("** The best dev accuracy: {:.5f}".format(best_dev_acc))
 
