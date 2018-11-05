@@ -31,9 +31,10 @@ def load_embedding(embedding_file):
     word_dict[''] = 0  # 空字符串表示未登录词
     word_id = 1
     for word, embedding in embedding_tuple:
-        word_dict[word] = word_id
-        word_id += 1
-        embedding_matrix.append(embedding)
+        if word_dict.get(word) is None:
+            word_dict[word] = word_id
+            word_id += 1
+            embedding_matrix.append(embedding)
     return word_dict, np.asarray(embedding_matrix, dtype=np.float32)
 
 
